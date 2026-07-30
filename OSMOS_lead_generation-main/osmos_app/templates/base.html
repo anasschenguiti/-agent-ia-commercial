@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="OSMOS — Autonomous Lead Intelligence Engine" />
+  <title>{% block title %}OSMOS — Autonomous Intelligence{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body>
+  <div class="app-container">
+
+    <!-- 1. LEFT SIDEBAR (20%) -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">OSM<span>OS</span></div>
+        <div class="system-status">
+          <span class="status-dot"></span> System Online
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Engine Health</h3>
+        <div class="health-item">
+          <span>Reasoning Engine</span>
+          <span class="health-ok">Optimal</span>
+        </div>
+        <div class="health-item">
+          <span>Decision Engine</span>
+          <span class="health-ok">Optimal</span>
+        </div>
+        <div class="health-item">
+          <span>LLM Gateway</span>
+          <span class="health-ok">Stable</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section console-section">
+        <h3>System Logs</h3>
+        <div class="console-window" id="systemConsole">
+          <div class="log-line log-info"><span class="time">13:42:01</span> [INFO] System Initialized.</div>
+          <div class="log-line log-success"><span class="time">13:42:05</span> [SUCCESS] DB Connected.</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN COLUMN -->
+    <div class="main-column">
+
+      <!-- 2. TOP PROGRESS BAR -->
+      <header class="top-progress-bar">
+        {% set current_step = step | default(1) %}
+        {% set progress_steps = [
+        (1, 'Analyse'),
+        (2, 'Recherche'),
+        (3, 'Classification'),
+        (4, 'Behaviour'),
+        (5, 'Avatar'),
+        (6, 'Planning'),
+        (7, 'Simulation')
+        ] %}
+        <div class="progress-timeline">
+          {% for s_num, s_name in progress_steps %}
+          <div class="progress-step {% if s_num == current_step %}active{% elif s_num < current_step %}done{% endif %}">
+            <div class="step-circle">
+              {% if s_num < current_step %}✓{% else %}{{ s_num }}{% endif %} </div>
+                <div class="step-label">{{ s_name }}</div>
+            </div>
+            {% if not loop.last %}
+            <div class="step-connector {% if s_num < current_step %}done{% endif %}"></div>
+            {% endif %}
+            {% endfor %}
+          </div>
+      </header>
+
+      <div class="content-split">
+
+        <!-- 3. MAIN CONTENT (45%) -->
+        <main class="main-content fade-in">
+          <!-- Flash messages -->
+          {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+          <div class="flash-container">
+            {% for category, message in messages %}
+            <div class="toast toast-{{ category }}">
+              {{ message }}
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% endwith %}
+
+          {% block content %}{% endblock %}
+        </main>
+
+
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading overlay removed to allow visibility of the browser simulator -->
+
+  <script>
+    const consoleDiv = document.getElementById('systemConsole');
+
+    function addLog(msg, type = 'info') {
+      const d = new Date();
+      const timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0') + ':' + d.getSeconds().toString().padStart(2, '0');
+      const div = document.createElement('div');
+      div.className = `log-line log-${type}`;
+      div.innerHTML = `<span class="time">${timeStr}</span> [${type.toUpperCase()}] ${msg}`;
+      if (consoleDiv) {
+        consoleDiv.appendChild(div);
+        consoleDiv.scrollTop = consoleDiv.scrollHeight;
+      }
+    }
+
+    function showLoading(title, subtitle) {
+      // We no longer show the black full-screen overlay.
+      // The simulation panel on the right handles the visual feedback!
+    }
+
+    function hideLoading() {
+      // Nothing to hide anymore
+    }
+
+    // Intercept form submissions
+    document.querySelectorAll('form').forEach(form => {
+      form.addEventListener('submit', function () {
+        const title = this.getAttribute('data-loading') || 'Processing...';
+        const sub = this.getAttribute('data-loading-sub') || '';
+        showLoading(title, sub);
+
+        addLog('Initiating autonomous routing...', 'warning');
+        addLog('Executing Decision Engine...', 'info');
+
+        // Animate browser
+        const simTextEl = document.getElementById('simText');
+        const simOverlayEl = document.getElementById('simOverlay');
+        const simCursorEl = document.getElementById('simCursor');
+        const browserBody = document.getElementById('browserBody');
+        const browserAddress = document.querySelector('.browser-address');
+
+        if (title.includes('Analyse') || title.includes('Recherche de prospects')) {
+          // Trigger Google Animation
+          if (browserAddress) browserAddress.innerHTML = '<span class="lock-icon">🔒</span> https://google.com';
+          if (simOverlayEl) simOverlayEl.style.display = 'none'; // Hide idle overlay
+          if (simCursorEl) simCursorEl.classList.add('animate-click');
+
+          if (browserBody) {
+            browserBody.innerHTML = `
+                <div class="sim-google">
+                   <div class="sim-google-logo">
+                     <span>G</span><span>o</span><span>o</span><span>g</span><span>l</span><span>e</span>
+                   </div>
+                   <div class="sim-search-bar">
+                     <span class="sim-search-text" id="simSearchText"></span>
+                   </div>
+                   <div class="sim-search-results" id="simSearchResults"></div>
+                </div>
+            `;
+          }
+
+          const searchText = document.getElementById('simSearchText');
+          const results = document.getElementById('simSearchResults');
+
+          const companyInput = document.getElementById('company_name');
+          const sectorInput = document.getElementById('company_sector');
+
+          let realQuery = "";
+          if (title.includes('Analyse') && companyInput && companyInput.value) {
+            realQuery = companyInput.value + " Maroc";
+          } else if (title.includes('Recherche') && sectorInput && sectorInput.value) {
+            realQuery = "entreprises " + sectorInput.value + " Maroc";
+          } else {
+            realQuery = title.includes('Analyse') ? "informations entreprise" : "entreprises B2B";
+          }
+
+          const query = realQuery;
+
+          let i = 0;
+          const typeInterval = setInterval(() => {
+            if (searchText && i < query.length) {
+              searchText.textContent += query.charAt(i);
+              i++;
+            } else {
+              clearInterval(typeInterval);
+              if (browserAddress) browserAddress.innerHTML = '<span class="lock-icon">🔒</span> https://google.com/search?q=' + encodeURIComponent(query);
+
+              const mockCompany = (companyInput && companyInput.value) ? companyInput.value : "L'entreprise";
+              const mockSector = (sectorInput && sectorInput.value) ? sectorInput.value : "secteur";
+
+              if (results) {
+                if (title.includes('Analyse')) {
+                  setTimeout(() => {
+                    results.innerHTML += `<div class="sim-result" style="animation-delay: 0s"><div class="sim-result-url">https://fr.linkedin.com &gt; company</div><div class="sim-result-title">${mockCompany} | LinkedIn</div><div class="sim-result-desc">Découvrez les offres, les employés et l'actualité de ${mockCompany} sur le premier réseau professionnel mondial...</div></div>`;
+                  }, 400);
+                  setTimeout(() => {
+                    results.innerHTML += `<div class="sim-result" style="animation-delay: 0.2s"><div class="sim-result-url">https://www.telecontact.ma &gt; entreprise</div><div class="sim-result-title">Informations et contact de ${mockCompany}</div><div class="sim-result-desc">Consultez les coordonnées, l'adresse et l'activité détaillée de la société ${mockCompany} au Maroc...</div></div>`;
+                  }, 1000);
+                } else {
+                  setTimeout(() => {
+                    results.innerHTML += `<div class="sim-result" style="animation-delay: 0s"><div class="sim-result-url">https://www.telecontact.ma &gt; professionnels</div><div class="sim-result-title">Annuaire des professionnels : ${mockSector} au Maroc</div><div class="sim-result-desc">Liste complète des sociétés spécialisées dans le domaine ${mockSector} avec coordonnées détaillées et contact...</div></div>`;
+                  }, 400);
+                  setTimeout(() => {
+                    results.innerHTML += `<div class="sim-result" style="animation-delay: 0.2s"><div class="sim-result-url">https://ma.kompass.com &gt; b2b</div><div class="sim-result-title">Top sociétés B2B (${mockSector}) Maroc</div><div class="sim-result-desc">Base de données B2B pour la prospection de partenaires dans le domaine de ${mockSector}...</div></div>`;
+                  }, 1000);
+                }
+              }
+            }
+          }, 50);
+
+        } else {
+          if (simTextEl) simTextEl.innerText = 'Executing Task...';
+          if (simOverlayEl) simOverlayEl.style.background = 'rgba(255,255,255,0.3)';
+          if (simCursorEl) simCursorEl.classList.add('animate-click');
+        }
+      });
+    });
+
+    // Dynamic logs based on step
+    window.addEventListener('load', () => {
+      const currentStep = parseInt("{{ step | default(1) }}", 10) || 1;
+      setTimeout(() => {
+        if (currentStep === 2) addLog('Company analysed successfully.', 'success');
+        if (currentStep === 3) addLog('Extracted maximum prospects from web.', 'success');
+        if (currentStep === 4) addLog('Avatar generated by NLG Engine.', 'success');
+      }, 1000);
+    });
+
+    // Tabs logic (preserved for compatibility with existing templates)
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', function () {
+        const target = this.dataset.tab;
+        const container = this.closest('.tabs-container');
+        if (!container) return;
+        container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        container.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        this.classList.add('active');
+        const pane = container.querySelector('#' + target);
+        if (pane) pane.classList.add('active');
+      });
+    });
+  </script>
+
+  <!-- HUB HELP MODAL -->
+  <div id="hubHelpModal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center; font-family:'Inter',sans-serif;">
+    <div
+      style="background:#0f172a; padding:40px; border-radius:16px; border:1px solid rgba(255,255,255,0.1); width:450px; text-align:center; box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+      <h2 style="color:white; margin-top:0;">🔒 Action Requise</h2>
+      <p id="hubHelpQuestion" style="color:#9ca3af; margin-bottom:25px;">Le navigateur est bloqué et attend votre code
+        de vérification.</p>
+      <div style="display:flex; flex-direction:column; gap:15px;">
+        <input type="text" id="hubHelpInput" placeholder="Entrez le code reçu par email/SMS..."
+          style="padding:12px; font-size:16px; border-radius:8px; border:1px solid rgba(255,255,255,0.2); background:transparent; color:white; outline:none; text-align:center;">
+        <button onclick="submitHubHelp()"
+          style="background:#6366f1; color:white; border:none; padding:12px 24px; font-size:16px; font-weight:600; border-radius:8px; cursor:pointer;">Débloquer
+          le système</button>
+      </div>
+      <p id="hubHelpStatus" style="color:#10b981; margin-top:15px; display:none;">✅ Code envoyé ! Reprise en cours...
+      </p>
+    </div>
+  </div>
+
+  <script>
+    // Logic to poll the Hub and show the modal if needed
+    setInterval(() => {
+      fetch('http://127.0.0.1:8000/status')
+        .then(res => res.json())
+        .then(data => {
+          const modal = document.getElementById('hubHelpModal');
+          // If the hub is waiting for help, show the modal
+          if (data.waiting_for_help === true && modal.style.display !== 'flex') {
+            if (data.help_question) {
+              document.getElementById('hubHelpQuestion').innerText = data.help_question;
+            }
+            modal.style.display = 'flex';
+            document.getElementById('hubHelpStatus').style.display = 'none';
+            document.getElementById('hubHelpInput').value = '';
+          }
+          // If it's no longer waiting, hide it
+          else if (data.waiting_for_help !== true && modal.style.display === 'flex') {
+            modal.style.display = 'none';
+          }
+        })
+        .catch(err => {
+          // Hub might be offline, do nothing
+        });
+    }, 2000);
+
+    function submitHubHelp() {
+      const code = document.getElementById('hubHelpInput').value;
+      if (!code) return;
+      fetch('http://127.0.0.1:8000/submit-help', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ response: code })
+      })
+        .then(res => {
+          document.getElementById('hubHelpStatus').style.display = 'block';
+          setTimeout(() => {
+            document.getElementById('hubHelpModal').style.display = 'none';
+          }, 1500);
+        })
+        .catch(err => alert("Erreur d'envoi: " + err));
+    }
+  </script>
+
+  {% block extra_js %}{% endblock %}
+</body>
+
+</html>

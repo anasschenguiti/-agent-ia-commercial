@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Analyse — {{ campaign.company_name }} | OSMOS{% endblock %}
+
+{% block content %}
+<div class="page-container fade-in">
+  <div class="page-header">
+    <div class="d-flex align-center gap-1 u-style-7">
+      <span class="badge badge-blue">Étape 2 / 7</span>
+      <span class="text-muted text-sm">Analyse entreprise</span>
+    </div>
+    <h1 class="page-title">Analyse de {{ campaign.company_name }}</h1>
+    <p class="page-subtitle">Informations extraites automatiquement par l'IA à partir de la recherche web</p>
+  </div>
+
+  <!-- Carte principale -->
+  <div class="card mb-3">
+    <div class="card-header">
+      <div class="card-icon">🏢</div>
+      <span class="card-title">{{ campaign.company_name }}</span>
+      {% if campaign.company_size %}
+      <span class="badge badge-navy u-style-8">{{ campaign.company_size }}</span>
+      {% endif %}
+    </div>
+
+    <!-- Grille infos -->
+    <div class="grid-2 mb-3">
+      <div class="info-item">
+        <span class="info-label">Secteur d'activité</span>
+        <span class="info-value">{{ campaign.company_sector or '—' }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Taille</span>
+        <span class="info-value">{{ campaign.company_size or '—' }}</span>
+      </div>
+    </div>
+
+    {% if campaign.value_proposition %}
+    <div class="info-item mb-3">
+      <span class="info-label">Offre de valeur principale</span>
+      <span class="info-value u-style-9">{{ campaign.value_proposition }}</span>
+    </div>
+    {% endif %}
+
+    {% if campaign.company_description %}
+    <div class="u-style-10">
+      <div class="info-label mb-1">Description</div>
+      <p class="u-style-11">{{ campaign.company_description }}</p>
+    </div>
+    {% endif %}
+
+    {% if campaign.linkedin_url %}
+    <div class="u-style-12">
+      <a href="{{ campaign.linkedin_url }}" target="_blank" class="btn btn-outline btn-sm">
+        🔗 Voir sur LinkedIn
+      </a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Info campagne -->
+  <div class="alert alert-info">
+    💡 Campagne créée le {{ campaign.created_at.strftime('%d/%m/%Y à %H:%M') if campaign.created_at else '' }} — ID : #{{ campaign.id }}
+  </div>
+
+  <!-- Actions -->
+  <div class="page-actions">
+    <a href="{{ url_for('index') }}" class="btn btn-ghost">← Retour à l'accueil</a>
+    <form
+      method="POST"
+      action="{{ url_for('find_prospects', campaign_id=campaign.id) }}"
+      data-loading="🔎 Recherche de prospects en cours..."
+      data-loading-sub="Identification et classification des entreprises cibles — 20 à 40 secondes"
+    >
+      <button type="submit" class="btn btn-primary btn-lg">
+        🎯 Trouver des prospects →
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
