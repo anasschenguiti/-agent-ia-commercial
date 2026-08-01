@@ -1,0 +1,48 @@
+# ── Git / state ────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+
+# ── Secrets (NEVER COPY INTO IMAGE) ────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+venv/
+.venv/
+
+# ── Node / Next.js ─────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.turbo/
+frontend/.env
+frontend/.env.local
+
+# ── Local data / DB ────────────────────────────────────
+sales_db.sqlite
+*.sqlite
+*.sqlite3
+data/training_data/
+
+# ── Tests artefacts ────────────────────────────────────
+promptfoo_output/
+
+# ── Editor / OS ────────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ── Sibling project (NOT part of this build) ───────────
+OSMOS_lead_generation-main/

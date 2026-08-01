@@ -1,13 +1,10 @@
 """
 Client calendrier : Google Calendar / Outlook via Microsoft Graph.
+
+Week 1 (securite) : on n'utilise PLUS SECRET_KEY comme bearer.
+Les tokens OAuth2 sont configures via GOOGLE_CALENDAR_TOKEN / OUTLOOK_TOKEN.
+Un hook de refresh est expose ; en production, brancher le flow OAuth2 complet.
 """
-
-import httpx
-from typing import Any, Dict, List, Optional
-from datetime import datetime
-
-from app.shared.config import settings
-
 
 import httpx
 from typing import Any, Dict, List, Optional
@@ -24,26 +21,40 @@ class CalendarClient:
 
     def __init__(self, provider: str = "google"):
         self.provider = provider
-        # Token d'accès (à récupérer dynamiquement via flow OAuth2 en prod)
-        self.access_token = settings.SECRET_KEY # Placeholder pour auth header
+        # Tokens dedies (NE PLUS UTILISER settings.SECRET_KEY).
+        # Hook de refresh : en prod, implementer le flow OAuth2 ici.
+        self.access_token = (
+            settings.GOOGLE_CALENDAR_TOKEN
+            if provider == "google"
+            else settings.OUTLOOK_TOKEN
+        )
         self.headers = {
             "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
     def _is_configured(self) -> bool:
-        # Permet de basculer en mode simulé si pas de token réel
-        return bool(
-            self.access_token 
-            and not self.access_token.startswith("change-me") 
-            and not self.access_token.startswith("dev-secret")
-            and len(self.access_token) > 40
+        """Vrai uniquement si un token reel (non vide, non placeholder) est defini."""
+        if not self.access_token:
+            return False
+        bad_prefixes = ("change-me", "dev-secret", "your-", "CHANGE_ME")
+        return not any(self.access_token.startswith(p) for p in bad_prefixes)
+
+    async def _refresh_token(self) -> None:
+        """Hook de refresh OAuth2. En prod : appeler le endpoint token provider."""
+        # Placeholder : on relit juste la config. A implementer avec le
+        # flow OAuth2 (client_id, client_secret, refresh_token) pour la prod.
+        self.access_token = (
+            settings.GOOGLE_CALENDAR_TOKEN
+            if self.provider == "google"
+            else settings.OUTLOOK_TOKEN
         )
+        self.headers["Authorization"] = f"Bearer {self.access_token}"
 
     async def get_free_slots(
         self, date_from: datetime, date_to: datetime
     ) -> List[Dict[str, Any]]:
-        """Retourne les créneaux libres dans la plage."""
+        """Retourne les creneaux libres dans la plage."""
         if not self._is_configured():
             return self._generate_mock_slots(date_from, date_to)
 
@@ -54,7 +65,7 @@ class CalendarClient:
         return []
 
     async def create_event(self, payload: dict) -> Dict[str, Any]:
-        """Crée un événement dans le calendrier."""
+        """Cree un evenement dans le calendrier."""
         if not self._is_configured():
             return {"status": "simulated", "event_id": "event_mock_999", "event": payload}
 
@@ -65,9 +76,9 @@ class CalendarClient:
         return {"status": "unsupported_provider"}
 
     async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
-        """Récupère un événement par son ID."""
+        """Recupere un evenement par son ID."""
         if not self._is_configured():
-            return {"id": event_id, "summary": "Réunion Commerciale IA", "status": "confirmed"}
+            return {"id": event_id, "summary": "Reunion Commerciale IA", "status": "confirmed"}
 
         endpoint = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}"
         if self.provider == "outlook":
@@ -83,9 +94,9 @@ class CalendarClient:
         return None
 
     async def delete_event(self, event_id: str) -> None:
-        """Supprime un événement."""
+        """Supprime un evenement."""
         if not self._is_configured():
-            print(f"[CalendarClient] Suppression simulée de l'événement {event_id}")
+            print(f"[CalendarClient] Suppression simulee de l'evenement {event_id}")
             return
 
         endpoint = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}"
@@ -107,7 +118,7 @@ class CalendarClient:
         payload = {
             "timeMin": date_from.isoformat() + "Z",
             "timeMax": date_to.isoformat() + "Z",
-            "items": [{"id": "primary"}]
+            "items": [{"id": "primary"}],
         }
         async with httpx.AsyncClient() as client:
             try:
@@ -115,18 +126,22 @@ class CalendarClient:
                 if res.status_code == 200:
                     busy_slots = res.json().get("calendars", {}).get("primary", {}).get("busy", [])
                     return busy_slots
+                if res.status_code == 401:
+                    await self._refresh_token()
             except Exception as e:
                 print(f"[CalendarClient] Erreur Google FreeBusy : {e}")
         return []
 
     async def _google_create_event(self, payload: dict) -> Dict[str, Any]:
-        """Crée un événement via Google Calendar API."""
+        """Cree un evenement via Google Calendar API."""
         endpoint = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
         async with httpx.AsyncClient() as client:
             try:
                 res = await client.post(endpoint, json=payload, headers=self.headers, timeout=5.0)
                 if res.status_code in [200, 201]:
                     return res.json()
+                if res.status_code == 401:
+                    await self._refresh_token()
             except Exception as e:
                 print(f"[CalendarClient] Erreur Google CreateEvent : {e}")
         return {"status": "error"}
@@ -138,7 +153,7 @@ class CalendarClient:
             "schedules": ["primary"],
             "startTime": {"dateTime": date_from.isoformat(), "timeZone": "UTC"},
             "endTime": {"dateTime": date_to.isoformat(), "timeZone": "UTC"},
-            "availabilityViewInterval": 60
+            "availabilityViewInterval": 60,
         }
         async with httpx.AsyncClient() as client:
             try:
@@ -163,11 +178,10 @@ class CalendarClient:
 
     # ── Mocks / Simulation ──
     def _generate_mock_slots(self, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
-        """Génère 4 créneaux libres par jour entre date_from et date_to."""
+        """Genere 4 creneaux libres par jour entre date_from et date_to."""
         slots = []
         current_day = date_from
         while current_day <= date_to:
-            # Ne planifier que sur les jours ouvrables (lundi à vendredi)
             if current_day.weekday() < 5:
                 for hour in [9, 10, 14, 15]:
                     start = current_day.replace(hour=hour, minute=0, second=0, microsecond=0)
@@ -175,7 +189,7 @@ class CalendarClient:
                     slots.append({
                         "start": start.isoformat(),
                         "end": end.isoformat(),
-                        "provider": self.provider
+                        "provider": self.provider,
                     })
             current_day += timedelta(days=1)
         return slots

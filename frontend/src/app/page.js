@@ -26,6 +26,7 @@ export default function Home() {
   const [chatMessages, setChatMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatProspectSearch, setChatProspectSearch] = useState("");
 
   // State pour CRM et Calendriers (Étape 4)
   const [crmSyncStatus, setCrmSyncStatus] = useState("");
@@ -46,6 +47,100 @@ export default function Home() {
 
   // State pour Analytics (Étape 6)
   const [analyticsData, setAnalyticsData] = useState(null);
+
+  // State pour Voice AI Agent (Microphone & STT/LLM/TTS)
+  const [voiceRecording, setVoiceRecording] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("Prêt pour l'interaction vocale en direct (STT -> LangGraph Qwen -> Edge-TTS)");
+  const [voiceResult, setVoiceResult] = useState(null);
+  const [voiceAudioUrl, setVoiceAudioUrl] = useState(null);
+  const [mediaRecorderObj, setMediaRecorderObj] = useState(null);
+  const [activeMediaStream, setActiveMediaStream] = useState(null);
+
+  const handleStartVoiceRecording = async () => {
+    setVoiceStatus("⚡ Demande d'accès au microphone...");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setActiveMediaStream(stream);
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
+      
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        // Libération explicite du matériel microphone (arrête l'indicateur rouge du navigateur)
+        stream.getTracks().forEach((track) => track.stop());
+        setActiveMediaStream(null);
+
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        setVoiceStatus("⏳ Traitement en cours (STT Faster-Whisper -> Agent LLM -> Synthèse TTS)...");
+        
+        const formData = new FormData();
+        formData.append("file", blob, "input.webm");
+        if (selectedProspect) {
+          formData.append("session_id", selectedProspect.id);
+        }
+        
+        try {
+          const token = localStorage.getItem("auth_token");
+          const res = await fetch(`${BACKEND_URL}/api/v1/voice/interact`, {
+            method: "POST",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+          });
+          
+          if (res.ok) {
+            const data = await res.json();
+            setVoiceResult(data);
+            setVoiceStatus(`✅ Réponse vocale générée avec succès (${data.detected_language || 'Darija'}) !`);
+            if (data.audio_base64) {
+              const audioSrc = `data:${data.content_type || "audio/mpeg"};base64,${data.audio_base64}`;
+              setVoiceAudioUrl(audioSrc);
+              const audio = new Audio(audioSrc);
+              audio.play();
+            }
+            if (data.user_transcript && data.agent_response) {
+              setChatMessages((prev) => [
+                ...prev,
+                { role: "user", content: `🎙️ ${data.user_transcript}`, timestamp: new Date().toISOString() },
+                { role: "assistant", content: data.agent_response, timestamp: new Date().toISOString() },
+              ]);
+            }
+          } else {
+            setVoiceStatus("❌ Erreur lors du traitement vocal par le serveur.");
+          }
+        } catch (err) {
+          setVoiceStatus("❌ Erreur de connexion avec le serveur vocal.");
+        }
+      };
+
+      recorder.start();
+      setMediaRecorderObj(recorder);
+      setVoiceRecording(true);
+      setVoiceStatus("🔴 Enregistrement en cours... Parlez clairement puis cliquez sur Arrêter.");
+    } catch (err) {
+      setVoiceRecording(false);
+      setVoiceStatus("❌ Impossible d'accéder au microphone : " + err.message);
+    }
+  };
+
+  const handleStopVoiceRecording = () => {
+    setVoiceRecording(false);
+    if (mediaRecorderObj && mediaRecorderObj.state !== "inactive") {
+      try {
+        mediaRecorderObj.stop();
+      } catch (e) {
+        // Ignorer si déjà arrêté
+      }
+    }
+    if (activeMediaStream) {
+      activeMediaStream.getTracks().forEach((track) => track.stop());
+      setActiveMediaStream(null);
+    }
+  };
 
   // State pour l'authentification (Étape 5)
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -616,6 +711,18 @@ export default function Home() {
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
               <span>Templates & Canaux</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("voice")}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition text-sm font-medium ${
+                activeTab === "voice"
+                  ? "bg-violet-600/30 text-violet-300 border-l-4 border-violet-500"
+                  : "text-slate-400 hover:bg-violet-950/20 hover:text-slate-200"
+              }`}
+            >
+              <svg className="w-5 h-5 text-fuchsia-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 016 0v6a3 3 0 01-3 3z" /></svg>
+              <span className="text-fuchsia-300 font-bold">Voice AI Agent 🎙️</span>
             </button>
           </nav>
         </div>
@@ -1243,223 +1350,442 @@ export default function Home() {
 
           {/* TAB 4: CHAT */}
           {activeTab === "chat" && (
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 h-[600px] border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md animate-fadeIn">
-              
-              {/* Liste de selection de prospects */}
-              <div className="bg-[#0c0822]/40 border-r border-violet-950/40 p-4 overflow-y-auto flex flex-col">
-                <h3 className="font-bold text-sm text-slate-400 uppercase tracking-wider mb-4 px-2">Liste de discussion</h3>
-                <div className="space-y-2 flex-1">
-                  {prospects.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelectedProspect(p)}
-                      className={`w-full text-left p-3 rounded-xl transition flex justify-between items-center ${
-                        selectedProspect?.id === p.id
-                          ? "bg-violet-600/30 border border-violet-500/30"
-                          : "hover:bg-violet-950/20 border border-transparent"
-                      }`}
-                    >
-                      <div>
-                        <div className="font-bold text-slate-200 text-sm">{p.first_name} {p.last_name}</div>
-                        <div className="text-xs text-slate-400">{p.company}</div>
-                      </div>
-                      <span className={`w-2.5 h-2.5 rounded-full ${
-                        p.score >= 80 ? "bg-rose-500" : p.score >= 50 ? "bg-amber-500" : "bg-sky-500"
-                      }`}></span>
-                    </button>
-                  ))}
+            <div className="space-y-6 animate-fadeIn">
+              {/* Header Banner */}
+              <div className="bg-gradient-to-r from-violet-950/70 via-slate-900 to-fuchsia-950/70 border border-violet-800/40 rounded-3xl p-6 backdrop-blur-xl shadow-2xl relative overflow-hidden flex justify-between items-center">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-violet-600 to-fuchsia-600 flex items-center justify-center text-2xl shadow-lg shadow-violet-600/30">
+                    🤖
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-extrabold text-white flex items-center gap-2">
+                      Studio de Chat Commercial IA
+                      <span className="text-xs px-2.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30 font-semibold">
+                        LangGraph + Qwen 2.5
+                      </span>
+                    </h2>
+                    <p className="text-slate-400 text-xs mt-0.5">
+                      Échangez en direct avec vos leads en Français, Anglais ou Darija 🇲🇦. Traitement autonome des objections et qualification commerciale.
+                    </p>
+                  </div>
                 </div>
+
+                {selectedProspect && (
+                  <div className="hidden md:flex items-center space-x-3 bg-slate-950/60 border border-violet-800/40 rounded-2xl px-4 py-2 text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="text-slate-300 font-medium">Session active:</span>
+                    <span className="font-bold text-violet-300">{selectedProspect.first_name} {selectedProspect.last_name}</span>
+                    <span className="text-slate-500 font-mono text-[10px]">({selectedProspect.company})</span>
+                  </div>
+                )}
               </div>
 
-              {/* Chat messages */}
-              <div className="lg:col-span-2 flex flex-col justify-between bg-slate-950/30">
-                {selectedProspect ? (
-                  <>
-                    {/* Top chat bar */}
-                    <div className="p-4 border-b border-violet-950/40 bg-[#0c0822]/40 flex justify-between items-center">
-                      <div>
-                        <h4 className="font-bold text-slate-200">{selectedProspect.first_name} {selectedProspect.last_name}</h4>
-                        <p className="text-xs text-slate-400">Session ID: {selectedProspect.id}</p>
-                      </div>
-                      <button
-                        onClick={handleClearHistory}
-                        className="text-xs text-rose-300 hover:text-rose-400 font-semibold px-2 py-1 rounded bg-rose-900/10 border border-rose-500/20 transition"
-                      >
-                        Vider l'historique
-                      </button>
-                    </div>
+              {/* Main 3-Column Workspace Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[680px]">
+                
+                {/* 1. Left Panel: Prospect Selector List */}
+                <div className="lg:col-span-3 bg-slate-900/60 border border-violet-950/50 rounded-2xl p-4 flex flex-col backdrop-blur-md">
+                  <div className="flex justify-between items-center mb-3 px-1">
+                    <h3 className="font-extrabold text-xs text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <span>👥</span>
+                      <span>Prospects ({prospects.length})</span>
+                    </h3>
+                  </div>
 
-                    {/* Messages Body */}
-                    <div className="flex-1 p-6 overflow-y-auto space-y-4">
-                      {chatMessages.length === 0 ? (
-                        <div className="text-center text-slate-500 text-xs py-12">
-                          Débutez la discussion. Envoyez un message ou dites bonjour.
-                        </div>
-                      ) : (
-                        chatMessages.map((msg, index) => (
-                          <div
-                            key={index}
-                            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                  {/* Search Filter Box */}
+                  <div className="relative mb-3">
+                    <input
+                      type="text"
+                      value={chatProspectSearch}
+                      onChange={(e) => setChatProspectSearch(e.target.value)}
+                      placeholder="Rechercher nom, entreprise..."
+                      className="w-full bg-slate-950/80 border border-violet-900/40 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-violet-500 transition"
+                    />
+                    {chatProspectSearch && (
+                      <button
+                        onClick={() => setChatProspectSearch("")}
+                        className="absolute right-2.5 top-2 text-slate-500 hover:text-slate-300 text-xs"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Prospects Scrollable List */}
+                  <div className="space-y-2 flex-1 overflow-y-auto max-h-[580px] pr-1">
+                    {prospects
+                      .filter((p) => {
+                        if (!chatProspectSearch) return true;
+                        const term = chatProspectSearch.toLowerCase();
+                        return (
+                          (p.first_name || "").toLowerCase().includes(term) ||
+                          (p.last_name || "").toLowerCase().includes(term) ||
+                          (p.company || "").toLowerCase().includes(term)
+                        );
+                      })
+                      .map((p) => {
+                        const isSelected = selectedProspect?.id === p.id;
+                        const initials = `${(p.first_name || "P")[0]}${(p.last_name || "R")[0]}`.toUpperCase();
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => setSelectedProspect(p)}
+                            className={`w-full text-left p-3 rounded-xl transition duration-200 flex items-center space-x-3 border ${
+                              isSelected
+                                ? "bg-gradient-to-r from-violet-600/30 via-fuchsia-950/30 to-slate-900 border-violet-500/50 shadow-lg shadow-violet-900/20"
+                                : "hover:bg-violet-950/20 border-white/5 bg-slate-950/40"
+                            }`}
                           >
+                            {/* Avatar Initials */}
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-extrabold text-xs shrink-0 ${
+                              isSelected
+                                ? "bg-gradient-to-tr from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-500/30"
+                                : "bg-slate-800 text-slate-300 border border-slate-700/50"
+                            }`}>
+                              {initials}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-slate-200 text-xs truncate">
+                                {p.first_name} {p.last_name}
+                              </div>
+                              <div className="text-[11px] text-violet-400 truncate font-medium">
+                                {p.company || "Entreprise Inconnue"}
+                              </div>
+                            </div>
+
+                            {/* Score Pill */}
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
+                              p.score >= 80 ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" : p.score >= 50 ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-sky-500/20 text-sky-300 border border-sky-500/30"
+                            }`}>
+                              {p.score || 0}
+                            </span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+
+                {/* 2. Middle Panel: Chat Conversation Window */}
+                <div className="lg:col-span-6 bg-slate-900/60 border border-violet-950/50 rounded-2xl flex flex-col backdrop-blur-md overflow-hidden">
+                  {selectedProspect ? (
+                    <>
+                      {/* Top Action Bar */}
+                      <div className="p-4 border-b border-violet-950/40 bg-slate-950/60 flex justify-between items-center">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-300 font-bold flex items-center justify-center text-xs">
+                            💬
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-slate-100 text-sm">
+                              {selectedProspect.first_name} {selectedProspect.last_name}
+                            </h4>
+                            <p className="text-[10px] text-violet-400 font-semibold">
+                              {selectedProspect.job_title || "Lead Commercial"} • {selectedProspect.company}
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleClearHistory}
+                          className="text-xs text-rose-300 hover:text-rose-200 font-bold px-3 py-1.5 rounded-xl bg-rose-950/40 border border-rose-500/30 transition flex items-center space-x-1.5 hover:bg-rose-900/50"
+                          title="Effacer la mémoire de cette conversation"
+                        >
+                          <span>🗑️</span>
+                          <span>Réinitialiser</span>
+                        </button>
+                      </div>
+
+                      {/* Message Thread Body */}
+                      <div className="flex-1 p-5 overflow-y-auto max-h-[460px] space-y-4 bg-slate-950/30">
+                        {chatMessages.length === 0 ? (
+                          <div className="text-center py-20 space-y-3">
+                            <div className="w-14 h-14 rounded-3xl bg-violet-600/20 border border-violet-500/30 text-violet-300 flex items-center justify-center text-2xl mx-auto shadow-inner">
+                              💬
+                            </div>
+                            <p className="font-bold text-slate-300 text-sm">Démarrez l&apos;échange avec {selectedProspect.first_name}</p>
+                            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                              Utilisez les suggestions ci-dessous ou saisissez votre message pour déclencher l&apos;Agent IA Commercial.
+                            </p>
+                          </div>
+                        ) : (
+                          chatMessages.map((msg, index) => (
                             <div
-                              className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                                msg.role === "user"
-                                  ? "bg-violet-600 text-white rounded-br-none"
-                                  : "bg-slate-800 text-slate-200 border border-slate-700/50 rounded-bl-none"
+                              key={index}
+                              className={`flex items-start space-x-3 ${
+                                msg.role === "user" ? "flex-row-reverse space-x-reverse" : "flex-row"
                               }`}
                             >
-                              <p>{msg.content}</p>
+                              {/* Avatar Badge */}
+                              <div
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 ${
+                                  msg.role === "user"
+                                    ? "bg-gradient-to-tr from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-600/30"
+                                    : "bg-slate-950 border border-violet-500/40 text-violet-300 shadow-md"
+                                }`}
+                              >
+                                {msg.role === "user" ? "👤" : "🤖"}
+                              </div>
+
+                              {/* Message Content Bubble */}
+                              <div
+                                className={`max-w-[80%] rounded-2xl p-4 text-xs leading-relaxed shadow-lg ${
+                                  msg.role === "user"
+                                    ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white rounded-tr-none"
+                                    : "bg-slate-900/90 border border-violet-800/40 text-slate-200 rounded-tl-none"
+                                }`}
+                              >
+                                <div className="flex justify-between items-center mb-1 text-[10px] opacity-75">
+                                  <span className="font-bold uppercase tracking-wider">
+                                    {msg.role === "user" ? "Vous (Prospection)" : "Agent Commercial IA"}
+                                  </span>
+                                </div>
+                                <p className="whitespace-pre-line text-sm font-normal">{msg.content}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+
+                        {/* Animated Loading Dots */}
+                        {chatLoading && (
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-xl bg-slate-950 border border-violet-500/40 text-violet-300 flex items-center justify-center text-xs font-bold shadow-md">
+                              🤖
+                            </div>
+                            <div className="bg-slate-900 border border-violet-800/40 rounded-2xl rounded-tl-none px-4 py-3 text-xs text-slate-300 flex items-center space-x-2">
+                              <span className="text-violet-300 font-medium">L&apos;Agent IA prépare sa réponse</span>
+                              <div className="flex space-x-1">
+                                <span className="w-1.5 h-1.5 bg-fuchsia-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                                <span className="w-1.5 h-1.5 bg-fuchsia-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                                <span className="w-1.5 h-1.5 bg-fuchsia-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                              </div>
                             </div>
                           </div>
-                        ))
-                      )}
-                      
-                      {chatLoading && (
-                        <div className="flex justify-start">
-                          <div className="bg-slate-800 border border-slate-700/50 rounded-2xl rounded-bl-none px-4 py-3 text-sm flex items-center space-x-1.5">
-                            <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                            <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                            <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                        )}
+                      </div>
+
+                      {/* Quick Prompt Suggestion Chips */}
+                      <div className="px-4 py-2 border-t border-violet-950/40 bg-slate-950/40 flex items-center space-x-2 overflow-x-auto scrollbar-none">
+                        <span className="text-[10px] uppercase font-bold text-slate-500 shrink-0">Prompts Rapides :</span>
+                        {[
+                          "⚡ Présentation Solution IA",
+                          "💰 Obtenir Grille Tarifaire",
+                          "📅 Proposer RDV Démo",
+                          "🇲🇦 Échanger en Darija",
+                          "🇫🇷 Traitement Objections"
+                        ].map((prompt, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setInputMessage(prompt)}
+                            className="px-2.5 py-1 rounded-lg bg-violet-950/40 hover:bg-violet-900/60 border border-violet-700/30 hover:border-violet-500/50 text-violet-300 text-[11px] font-medium transition shrink-0"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Chat Input Form */}
+                      <form onSubmit={handleSendMessage} className="p-4 border-t border-violet-950/40 bg-slate-950/80 flex items-center space-x-3">
+                        <input
+                          type="text"
+                          value={inputMessage}
+                          onChange={(e) => setInputMessage(e.target.value)}
+                          placeholder={`Écrivez votre message à ${selectedProspect.first_name}...`}
+                          className="flex-1 bg-slate-950 border border-violet-900/40 focus:border-violet-500 rounded-xl px-4 py-3 text-xs text-slate-100 placeholder-slate-500 focus:outline-none transition shadow-inner"
+                          required
+                        />
+
+                        {/* Microphone Voice Button */}
+                        <button
+                          type="button"
+                          onClick={voiceRecording ? handleStopVoiceRecording : handleStartVoiceRecording}
+                          className={`px-4 py-3 rounded-xl transition text-xs font-extrabold flex items-center space-x-2 ${
+                            voiceRecording
+                              ? "bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-600/40"
+                              : "bg-fuchsia-950/60 hover:bg-fuchsia-900/60 border border-fuchsia-600/40 text-fuchsia-300 shadow-md"
+                          }`}
+                          title="Interagir de vive voix (Microphone STT/TTS)"
+                        >
+                          <span className="text-base">{voiceRecording ? "🛑" : "🎙️"}</span>
+                          <span>{voiceRecording ? "Arrêter" : "Vocal"}</span>
+                        </button>
+
+                        {/* Send Button */}
+                        <button
+                          type="submit"
+                          disabled={chatLoading}
+                          className="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-extrabold px-6 py-3 rounded-xl transition text-xs flex items-center space-x-2 shadow-lg shadow-violet-600/30 hover:scale-105"
+                        >
+                          <span>Envoyer</span>
+                          <span>🚀</span>
+                        </button>
+                      </form>
+                    </>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-slate-500 space-y-3 p-8">
+                      <div className="w-16 h-16 rounded-3xl bg-violet-600/10 border border-violet-500/20 text-violet-400 flex items-center justify-center text-3xl">
+                        👈
+                      </div>
+                      <p className="font-bold text-slate-300 text-base">Aucun prospect sélectionné</p>
+                      <p className="text-xs text-slate-500 text-center max-w-sm">
+                        Sélectionnez un prospect dans la liste à gauche pour ouvrir son espace de discussion et engager l&apos;Agent IA Commercial.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Right Panel: Prospect 360° Drawer & Actions */}
+                <div className="lg:col-span-3 bg-slate-900/60 border border-violet-950/50 rounded-2xl p-5 flex flex-col space-y-5 overflow-y-auto backdrop-blur-md">
+                  {selectedProspect ? (
+                    <>
+                      <div className="border-b border-violet-950/40 pb-3">
+                        <h3 className="font-extrabold text-xs text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>📋</span>
+                          <span>Fiche Prospect 360°</span>
+                        </h3>
+                      </div>
+
+                      {/* Lead Identity Card */}
+                      <div className="bg-slate-950/60 border border-violet-900/40 rounded-xl p-4 space-y-2">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-violet-600 to-fuchsia-600 text-white font-bold flex items-center justify-center text-sm shadow-md">
+                            {`${(selectedProspect.first_name || "P")[0]}${(selectedProspect.last_name || "R")[0]}`.toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-extrabold text-slate-100 text-sm">
+                              {selectedProspect.first_name} {selectedProspect.last_name}
+                            </div>
+                            <div className="text-violet-400 text-xs font-bold">
+                              {selectedProspect.company || "N/C"}
+                            </div>
                           </div>
                         </div>
-                      )}
-                    </div>
 
-                    {/* Chat Input */}
-                    <form onSubmit={handleSendMessage} className="p-4 border-t border-violet-950/40 bg-[#0c0822]/40 flex space-x-2">
-                      <input
-                        type="text"
-                        value={inputMessage}
-                        onChange={(e) => setInputMessage(e.target.value)}
-                        placeholder="Écrivez votre message à l'agent IA..."
-                        className="flex-1 bg-slate-950/60 border border-violet-900/40 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-violet-500 text-slate-200"
-                        required
-                      />
-                      <button
-                        type="submit"
-                        disabled={chatLoading}
-                        className="bg-violet-600 hover:bg-violet-500 text-white font-bold px-5 py-3 rounded-xl transition text-sm flex items-center"
-                      >
-                        Envoyer
-                      </button>
-                    </form>
-                  </>
-                ) : (
-                  <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">
-                    Sélectionnez un prospect sur la gauche pour commencer la discussion.
-                  </div>
-                )}
+                        <div className="pt-2 border-t border-white/5 text-xs space-y-1 text-slate-300">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Poste :</span>
+                            <span className="font-semibold text-slate-200">{selectedProspect.job_title || "N/C"}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Ville :</span>
+                            <span className="font-semibold text-slate-200">{selectedProspect.location || "Casablanca"}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Contact Badges */}
+                      <div className="bg-slate-950/60 border border-violet-900/40 rounded-xl p-3.5 space-y-2.5 text-xs">
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Coordonnées Directes</span>
+                        
+                        {selectedProspect.email && (
+                          <a
+                            href={`mailto:${selectedProspect.email}`}
+                            className="flex items-center space-x-2 text-slate-300 hover:text-violet-300 transition truncate"
+                          >
+                            <span>📧</span>
+                            <span className="truncate">{selectedProspect.email}</span>
+                          </a>
+                        )}
+
+                        {selectedProspect.phone && (
+                          <a
+                            href={`tel:${selectedProspect.phone}`}
+                            className="flex items-center space-x-2 text-slate-300 hover:text-emerald-300 transition font-mono text-[11px]"
+                          >
+                            <span>📞</span>
+                            <span>{selectedProspect.phone}</span>
+                          </a>
+                        )}
+
+                        {selectedProspect.linkedin_url && (
+                          <a
+                            href={selectedProspect.linkedin_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center space-x-2 text-sky-400 hover:text-sky-300 transition font-bold text-[11px]"
+                          >
+                            <span>🔗</span>
+                            <span>Profil LinkedIn Verified</span>
+                          </a>
+                        )}
+                      </div>
+
+                      {/* OSMOS Score Widget */}
+                      <div className={`rounded-xl p-4 border text-center ${getScoreBadgeColor(selectedProspect.score)}`}>
+                        <span className="text-[10px] uppercase font-bold tracking-wider block mb-1">Qualification OSMOS IA</span>
+                        <span className="text-lg font-extrabold block">{getScoreText(selectedProspect.score)} ({selectedProspect.score || 0}/100)</span>
+                      </div>
+
+                      {/* CRM Synchronizer Actions */}
+                      <div className="bg-slate-950/60 border border-violet-900/40 rounded-xl p-3.5 space-y-2.5">
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Synchronisation CRM</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => handleCrmSync("hubspot")}
+                            className="bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white font-bold py-2 px-2.5 rounded-lg border border-violet-600/30 transition text-[11px] text-center"
+                          >
+                            HubSpot
+                          </button>
+                          <button
+                            onClick={() => handleCrmSync("odoo")}
+                            className="bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white font-bold py-2 px-2.5 rounded-lg border border-violet-600/30 transition text-[11px] text-center"
+                          >
+                            Odoo
+                          </button>
+                        </div>
+                        {crmSyncStatus && (
+                          <div className="text-[10px] text-violet-300 bg-violet-950/40 border border-violet-500/30 p-2 rounded-lg text-center animate-pulse">
+                            {crmSyncStatus}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Calendar Appointment Slots */}
+                      <div className="bg-slate-950/60 border border-violet-900/40 rounded-xl p-3.5 space-y-2.5">
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Créneaux Calendrier Libres</span>
+                        {availableSlots.length === 0 ? (
+                          <div className="text-slate-500 text-[11px] text-center py-2">
+                            Aucun créneau libre.
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {availableSlots.map((slot, index) => {
+                              const dateStr = new Date(slot.start).toLocaleString('fr-FR', {
+                                weekday: 'short',
+                                day: 'numeric',
+                                month: 'short',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              });
+                              return (
+                                <button
+                                  key={index}
+                                  onClick={() => handleBookSlot(slot)}
+                                  className="w-full text-left bg-slate-950 hover:bg-violet-950/60 border border-violet-950 hover:border-violet-500/40 rounded-lg p-2 text-[11px] text-slate-300 flex justify-between items-center transition"
+                                >
+                                  <span>📅 {dateStr}</span>
+                                  <span className="text-violet-400 font-bold text-[10px]">Réserver</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {bookingStatus && (
+                          <div className="text-[10px] text-emerald-300 bg-emerald-950/40 border border-emerald-500/30 p-2 rounded-lg text-center">
+                            {bookingStatus}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-12 text-slate-500 text-xs">
+                      Aucune fiche sélectionnée.
+                    </div>
+                  )}
+                </div>
+
               </div>
-
-              {/* Prospect Details */}
-              <div className="bg-[#0c0822]/40 p-6 flex flex-col space-y-6 overflow-y-auto">
-                {selectedProspect ? (
-                  <>
-                    <h3 className="font-bold text-sm text-slate-400 uppercase tracking-wider mb-2">Fiche Prospect</h3>
-                    
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500">Nom & Prénom</span>
-                      <div className="font-bold text-slate-200 text-lg leading-tight mt-0.5">{selectedProspect.first_name} {selectedProspect.last_name}</div>
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500">Poste & Entreprise</span>
-                      <div className="font-semibold text-slate-300 text-sm mt-0.5">{selectedProspect.job_title}</div>
-                      <div className="text-violet-400 text-xs font-bold">{selectedProspect.company}</div>
-                    </div>
-
-                    <div className="bg-slate-950/30 border border-violet-950/40 rounded-xl p-4 space-y-3 text-xs">
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-500 block">E-mail</span>
-                        <a href={`mailto:${selectedProspect.email}`} className="text-slate-300 hover:underline">{selectedProspect.email || "Non renseigné"}</a>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Téléphone</span>
-                        <span className="text-slate-300">{selectedProspect.phone || "Non renseigné"}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Site Web</span>
-                        <a href={selectedProspect.website} target="_blank" className="text-violet-400 hover:underline">{selectedProspect.website || "Non renseigné"}</a>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-500 block">LinkedIn</span>
-                        <a href={selectedProspect.linkedin_url} target="_blank" className="text-violet-400 hover:underline">Profil LinkedIn</a>
-                      </div>
-                    </div>
-
-                    <div className={`rounded-xl p-4 border text-center ${getScoreBadgeColor(selectedProspect.score)}`}>
-                      <span className="text-[10px] uppercase font-bold tracking-wider block mb-1">Qualification IA</span>
-                      <span className="text-base font-extrabold block">{getScoreText(selectedProspect.score)} ({selectedProspect.score || 0}/100)</span>
-                    </div>
-
-                    {/* Actions CRM */}
-                    <div className="bg-slate-950/30 border border-violet-950/40 rounded-xl p-4 space-y-3">
-                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Actions CRM</span>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => handleCrmSync("hubspot")}
-                          className="bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white font-bold py-2 px-3 rounded-lg border border-violet-600/30 transition text-[11px]"
-                        >
-                          Sync HubSpot
-                        </button>
-                        <button
-                          onClick={() => handleCrmSync("odoo")}
-                          className="bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white font-bold py-2 px-3 rounded-lg border border-violet-600/30 transition text-[11px]"
-                        >
-                          Sync Odoo
-                        </button>
-                      </div>
-                      {crmSyncStatus && (
-                        <div className="text-[11px] text-violet-300 bg-violet-950/30 border border-violet-500/20 p-2 rounded-lg text-center animate-pulse">
-                          {crmSyncStatus}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Planification Calendrier */}
-                    <div className="bg-slate-950/30 border border-violet-950/40 rounded-xl p-4 space-y-3">
-                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Créneaux Disponibles</span>
-                      {availableSlots.length === 0 ? (
-                        <div className="text-slate-500 text-[11px] text-center py-2">
-                          Aucun créneau libre disponible.
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {availableSlots.map((slot, index) => {
-                            const dateStr = new Date(slot.start).toLocaleString('fr-FR', {
-                              weekday: 'short',
-                              day: 'numeric',
-                              month: 'short',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            });
-                            return (
-                              <button
-                                key={index}
-                                onClick={() => handleBookSlot(slot)}
-                                className="w-full text-left bg-slate-950/40 hover:bg-violet-950/40 border border-violet-950/40 hover:border-violet-500/30 rounded-lg p-2.5 text-xs text-slate-300 flex justify-between items-center transition"
-                              >
-                                <span>{dateStr}</span>
-                                <span className="text-[10px] text-violet-400 font-semibold uppercase">Réserver</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {bookingStatus && (
-                        <div className="text-[11px] text-emerald-300 bg-emerald-950/30 border border-emerald-500/20 p-2 rounded-lg text-center font-medium">
-                          {bookingStatus}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-slate-500 text-xs text-center py-12">
-                    Aucun prospect sélectionné.
-                  </div>
-                )}
-              </div>
-
             </div>
           )}
 
@@ -1708,6 +2034,151 @@ export default function Home() {
                   ) : (
                     <div className="text-center py-12 text-slate-500 text-sm">
                       Sélectionnez un modèle à gauche pour le personnaliser ou le tester.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: VOICE AI AGENT */}
+          {activeTab === "voice" && (
+            <div className="space-y-8 animate-fadeIn">
+              {/* Header Card */}
+              <div className="bg-gradient-to-r from-fuchsia-950/60 via-slate-900 to-violet-950/60 border border-fuchsia-800/40 rounded-3xl p-8 backdrop-blur-xl shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-96 h-96 bg-fuchsia-600/10 rounded-full blur-3xl -mr-20 -mt-20"></div>
+                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                  <div>
+                    <div className="flex items-center space-x-3 mb-2">
+                      <span className="px-3 py-1 bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 rounded-full text-xs font-bold uppercase tracking-wider">
+                        Pipeline Audio Temps Réel
+                      </span>
+                      <span className="px-3 py-1 bg-violet-500/20 text-violet-300 border border-violet-500/30 rounded-full text-xs font-semibold">
+                        Whisper distil-large-v3 + Silero VAD + Edge-TTS
+                      </span>
+                    </div>
+                    <h2 className="text-2xl font-extrabold text-white">Agent Commercial Vocal IA 🎙️</h2>
+                    <p className="text-slate-400 text-sm mt-1 max-w-2xl">
+                      Interagissez directement à la voix avec l&apos;Agent IA Commercial. Reconnaissance automatique en Darija / Français / Anglais, traitement LangGraph avec gestion d&apos;objections et réponse audio synthétisée.
+                    </p>
+                  </div>
+
+                  {/* Big Microphone Toggle Button */}
+                  <button
+                    onClick={voiceRecording ? handleStopVoiceRecording : handleStartVoiceRecording}
+                    className={`px-8 py-5 rounded-2xl font-extrabold text-base transition-all duration-300 flex items-center space-x-3 shadow-xl ${
+                      voiceRecording
+                        ? "bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-rose-600/50 scale-105"
+                        : "bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-500 hover:to-violet-500 text-white shadow-fuchsia-600/30 hover:scale-105"
+                    }`}
+                  >
+                    <span className="text-2xl">{voiceRecording ? "🛑" : "🎙️"}</span>
+                    <span>{voiceRecording ? "Arrêter l'enregistrement" : "Parler à l'Agent Vocal"}</span>
+                  </button>
+                </div>
+
+                {/* Status Bar */}
+                <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between text-xs font-mono text-fuchsia-300">
+                  <div className="flex items-center space-x-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${voiceRecording ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`}></span>
+                    <span>{voiceStatus}</span>
+                  </div>
+                  {voiceResult?.detected_language && (
+                    <span className="bg-slate-950/60 px-3 py-1 rounded-lg border border-fuchsia-900/40">
+                      Langue détectée : <strong>{voiceResult.detected_language}</strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Results & Waveform Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* User Input & Audio Playback Card */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md space-y-6">
+                  <h3 className="font-bold text-lg text-slate-100 flex items-center space-x-2">
+                    <span>🎧</span>
+                    <span>Transcription & Réponse Audio</span>
+                  </h3>
+
+                  {voiceResult ? (
+                    <div className="space-y-4">
+                      {/* User Transcript */}
+                      <div className="bg-slate-950/60 border border-violet-900/40 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] uppercase font-bold text-violet-400">Votre Message Vocal (STT)</span>
+                        <p className="text-slate-200 text-sm font-medium">{voiceResult.user_transcript || "Aucune parole détectée"}</p>
+                      </div>
+
+                      {/* Agent Response Text */}
+                      <div className="bg-slate-950/60 border border-fuchsia-900/40 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] uppercase font-bold text-fuchsia-400">Réponse de l'Agent Commercial (LLM)</span>
+                        <p className="text-slate-200 text-sm font-medium">{voiceResult.agent_response || "Pas de réponse"}</p>
+                      </div>
+
+                      {/* Audio Player */}
+                      {voiceAudioUrl && (
+                        <div className="bg-fuchsia-950/30 border border-fuchsia-500/30 rounded-xl p-4 space-y-2">
+                          <span className="text-[10px] uppercase font-bold text-fuchsia-300 block">Lecteur Synthèse Vocale (TTS)</span>
+                          <audio controls src={voiceAudioUrl} className="w-full h-10 accent-fuchsia-500" autoPlay></audio>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 text-slate-500 text-sm">
+                      <div className="text-4xl mb-3">🎙️</div>
+                      <p className="font-semibold text-slate-400">Aucun enregistrement vocal actif</p>
+                      <p className="text-xs text-slate-500 mt-1">Cliquez sur le bouton ci-dessus pour poser votre question de vive voix.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Metrics & Architecture Card */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md space-y-6">
+                  <h3 className="font-bold text-lg text-slate-100 flex items-center space-x-2">
+                    <span>⚡</span>
+                    <span>Performance & Métriques Latence</span>
+                  </h3>
+
+                  {voiceResult?.metrics ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-950/50 border border-violet-900/40 rounded-xl p-4 text-center">
+                        <span className="text-xs text-slate-400 block font-semibold">Reconnaissance (STT)</span>
+                        <span className="text-2xl font-bold text-violet-300">{voiceResult.metrics.stt_duration_sec?.toFixed(2) || '0.00'}s</span>
+                        <span className="text-[10px] text-slate-500 block mt-1">Faster-Whisper</span>
+                      </div>
+                      <div className="bg-slate-950/50 border border-fuchsia-900/40 rounded-xl p-4 text-center">
+                        <span className="text-xs text-slate-400 block font-semibold">Raisonnement (LLM)</span>
+                        <span className="text-2xl font-bold text-fuchsia-300">{voiceResult.metrics.llm_duration_sec?.toFixed(2) || '0.00'}s</span>
+                        <span className="text-[10px] text-slate-500 block mt-1">LangGraph Qwen</span>
+                      </div>
+                      <div className="bg-slate-950/50 border border-amber-900/40 rounded-xl p-4 text-center">
+                        <span className="text-xs text-slate-400 block font-semibold">Synthèse (TTS)</span>
+                        <span className="text-2xl font-bold text-amber-300">{voiceResult.metrics.tts_duration_sec?.toFixed(2) || '0.00'}s</span>
+                        <span className="text-[10px] text-slate-500 block mt-1">Piper / Edge-TTS</span>
+                      </div>
+                      <div className="bg-slate-950/50 border border-emerald-900/40 rounded-xl p-4 text-center">
+                        <span className="text-xs text-slate-400 block font-semibold">Latence Totale</span>
+                        <span className="text-2xl font-bold text-emerald-300">{voiceResult.metrics.total_duration_sec?.toFixed(2) || '0.00'}s</span>
+                        <span className="text-[10px] text-slate-500 block mt-1">Temps Réel</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 text-xs text-slate-400">
+                      <div className="p-3 bg-slate-950/40 border border-violet-950/40 rounded-xl flex items-center justify-between">
+                        <span>1. VAD & Filtrage Silence</span>
+                        <span className="text-emerald-400 font-bold">Silero VAD ON</span>
+                      </div>
+                      <div className="p-3 bg-slate-950/40 border border-violet-950/40 rounded-xl flex items-center justify-between">
+                        <span>2. Modèle STT</span>
+                        <span className="text-violet-300 font-bold">distil-large-v3</span>
+                      </div>
+                      <div className="p-3 bg-slate-950/40 border border-violet-950/40 rounded-xl flex items-center justify-between">
+                        <span>3. Moteur LLM + Objections</span>
+                        <span className="text-fuchsia-300 font-bold">LangGraph + Ollama</span>
+                      </div>
+                      <div className="p-3 bg-slate-950/40 border border-violet-950/40 rounded-xl flex items-center justify-between">
+                        <span>4. Moteur Synthèse Vocale</span>
+                        <span className="text-amber-300 font-bold">Piper / Edge Streaming</span>
+                      </div>
                     </div>
                   )}
                 </div>

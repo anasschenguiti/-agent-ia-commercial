@@ -44,12 +44,14 @@ def check_and_send_followups() -> dict:
             return {"checked": len(pending_list), "dispatched": sent_count}
 
     try:
-        loop = asyncio.get_event_loop()
+        return asyncio.run(_run())
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
-    return loop.run_until_complete(_run())
+        try:
+            return loop.run_until_complete(_run())
+        finally:
+            loop.close()
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
@@ -88,8 +90,15 @@ def send_followup_whatsapp(
     try:
         client = WhatsAppClient()
         message = f"Bonjour {name}, je fais suite à notre échange (J{day})."
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(client.send_text(to=phone, message=message))
+        try:
+            result = asyncio.run(client.send_text(to=phone, message=message))
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(client.send_text(to=phone, message=message))
+            finally:
+                loop.close()
         return {
             "prospect_id": prospect_id,
             "day": day,

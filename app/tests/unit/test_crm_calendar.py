@@ -76,13 +76,45 @@ async def test_odoo_authenticate(mock_odoo):
 async def test_calendar_mock_slots():
     # En l'absence de clé de configuration, le calendrier doit générer des créneaux de simulation
     client = CalendarClient(provider="google")
-    
+
     date_from = datetime(2026, 7, 20, 0, 0, 0) # Un lundi
     date_to = datetime(2026, 7, 21, 23, 59, 59) # Un mardi
-    
+
     slots = await client.get_free_slots(date_from, date_to)
-    
+
     assert len(slots) > 0
     # On doit retrouver 4 créneaux par jour (9h, 10h, 14h, 15h)
     assert any("09:00:00" in s["start"] for s in slots)
     assert any("15:00:00" in s["start"] for s in slots)
+
+
+def test_calendar_does_not_use_secret_key():
+    """Week 1 (securite) : CalendarClient ne doit JAMAIS utiliser SECRET_KEY
+    comme bearer token. En l'absence de GOOGLE_CALENDAR_TOKEN / OUTLOOK_TOKEN,
+    il bascule en mode simule et n'envoie pas d'Authorization header reel."""
+    from app.shared.config import settings
+    secret_raw = settings.SECRET_KEY.get_secret_value()
+    client = CalendarClient(provider="google")
+
+    # Bearer envoye ne doit JAMAIS etre la cle JWT (meme partiellement).
+    sent_bearer = client.headers.get("Authorization", "")
+    assert secret_raw not in sent_bearer, (
+        "SECURITE: CalendarClient utilise SECRET_KEY comme bearer !"
+    )
+
+
+def test_calendar_uses_dedicated_token():
+    """Week 1 : si GOOGLE_CALENDAR_TOKEN est defini, il doit etre utilise."""
+    import os
+    from app.shared.config import settings
+    fake_token = "ya29.fake-google-calendar-token-12345"
+    os.environ["GOOGLE_CALENDAR_TOKEN"] = fake_token
+    try:
+        # settings est un singleton ; on relit la config
+        settings.GOOGLE_CALENDAR_TOKEN = fake_token
+        client = CalendarClient(provider="google")
+        assert client.access_token == fake_token
+        assert client.headers["Authorization"] == f"Bearer {fake_token}"
+    finally:
+        os.environ.pop("GOOGLE_CALENDAR_TOKEN", None)
+        settings.GOOGLE_CALENDAR_TOKEN = ""

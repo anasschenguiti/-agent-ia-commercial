@@ -18,8 +18,15 @@ def scrape_prospects(self, query: dict) -> dict:
         scraper = ProspectScraper()
         scorer = ProspectScorer()
 
-        loop = asyncio.get_event_loop()
-        prospects = loop.run_until_complete(scraper.search(query))
+        try:
+            prospects = asyncio.run(scraper.search(query))
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                prospects = loop.run_until_complete(scraper.search(query))
+            finally:
+                loop.close()
 
         results = []
         for p in prospects:

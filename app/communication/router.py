@@ -15,8 +15,7 @@ router = APIRouter()
 
 @router.get("/templates")
 async def list_templates(
-    channel: Optional[str] = None,
-    current_user: TokenData = Depends(get_current_user)
+    channel: Optional[str] = None
 ):
     """Liste tous les templates de messages enregistrés."""
     return template_engine.list_templates(channel=channel)

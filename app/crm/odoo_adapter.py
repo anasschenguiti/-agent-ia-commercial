@@ -1,18 +1,17 @@
 """
 Adaptateur Odoo CRM.
-Encapsule les appels à l'API JSON-RPC d'Odoo.
+Encapsule les appels a l'API JSON-RPC d'Odoo.
+
+Week 2 (bug fix) : update_deal_stage acceptait un str (nom d'etape) qu'il
+envoyait tel quel a Odoo qui attend un integer ID. On resout maintenant
+le nom -> integer via search sur crm.stage, avec cache Redis 24h.
 """
 
 import httpx
 from typing import Any, Dict, List, Optional
 
 from app.shared.config import settings
-
-
-import httpx
-from typing import Any, Dict, List, Optional
-
-from app.shared.config import settings
+from app.shared.redis_client import RedisCache
 
 
 class OdooAdapter:
@@ -27,12 +26,13 @@ class OdooAdapter:
         self.username = settings.ODOO_USER
         self.password = settings.ODOO_PASSWORD
         self.uid: Optional[int] = None
+        self._stage_cache = RedisCache(prefix="odoo:stage")
 
     def _is_configured(self) -> bool:
         return bool(
-            self.url 
-            and not self.url.startswith("https://your-odoo-instance") 
-            and self.password 
+            self.url
+            and not self.url.startswith("https://your-odoo-instance")
+            and self.password
             and len(self.password) > 0
         )
 
@@ -56,7 +56,7 @@ class OdooAdapter:
                 response = await client.post(
                     f"{self.url}/web/session/authenticate",
                     json=payload,
-                    timeout=5.0
+                    timeout=5.0,
                 )
                 if response.status_code == 200:
                     res_json = response.json()
@@ -70,7 +70,7 @@ class OdooAdapter:
             return self.uid
 
     async def _call(self, model: str, method: str, args: list) -> Any:
-        """Appel JSON-RPC générique (execute_kw) vers un modèle Odoo."""
+        """Appel JSON-RPC generique (execute_kw) vers un modele Odoo."""
         if not self._is_configured():
             return []
 
@@ -91,7 +91,7 @@ class OdooAdapter:
                 response = await client.post(
                     f"{self.url}/jsonrpc",
                     json=payload,
-                    timeout=5.0
+                    timeout=5.0,
                 )
                 if response.status_code == 200:
                     return response.json().get("result", [])
@@ -101,7 +101,7 @@ class OdooAdapter:
                 return []
 
     async def upsert_contact(self, contact: Dict[str, Any]) -> Dict[str, Any]:
-        """Crée ou met à jour un partenaire dans Odoo."""
+        """Cree ou met a jour un partenaire dans Odoo."""
         if not self._is_configured():
             return {"status": "simulated", "action": "upsert_contact", "contact": contact}
 
@@ -109,17 +109,14 @@ class OdooAdapter:
         try:
             partner_id = None
             if email:
-                # Rechercher si l'email existe
                 existing = await self._call("res.partner", "search", [[("email", "=", email)]])
                 if existing:
                     partner_id = existing[0]
 
             if partner_id:
-                # Mise à jour
                 await self._call("res.partner", "write", [[partner_id], contact])
                 return {"status": "success", "id": partner_id, "action": "write"}
             else:
-                # Création
                 new_id = await self._call("res.partner", "create", [contact])
                 return {"status": "success", "id": new_id, "action": "create"}
         except Exception as e:
@@ -127,31 +124,92 @@ class OdooAdapter:
             return {"status": "error", "detail": str(e)}
 
     async def list_contacts(self) -> List[Dict[str, Any]]:
-        """Récupère les partenaires Odoo."""
+        """Recupere les partenaires Odoo."""
         if not self._is_configured():
             return []
         return await self._call("res.partner", "search_read", [[], ["name", "email", "phone"]])
 
-    async def update_deal_stage(self, contact_id: str, stage: str) -> Dict[str, Any]:
-        """Met à jour l'étape d'une opportunité CRM Odoo."""
+    async def _resolve_stage_id(self, stage: str) -> int:
+        """
+        Resout un nom d'etape CRM en integer ID (Odoo exige un int).
+        Utilise un cache Redis 24h pour eviter de re-requeter a chaque appel.
+        """
+        cache_key = f"name:{stage.lower().strip()}"
+        cached = await self._stage_cache.get(cache_key)
+        if cached is not None:
+            return int(cached)
+
+        # Recherche insensible a la casse.
+        rows = await self._call(
+            "crm.stage",
+            "search_read",
+            [[("name", "ilike", stage)], ["id", "name"]],
+        )
+        if not rows:
+            raise ValueError(f"Etape CRM inconnue dans Odoo : {stage!r}")
+
+        stage_id = int(rows[0]["id"])
+        await self._stage_cache.set(cache_key, stage_id, ttl=24 * 3600)
+        return stage_id
+
+    async def update_deal_stage(self, contact_id: str, stage) -> Dict[str, Any]:
+        """
+        Met a jour l'etape d'une opportunite CRM Odoo.
+
+        Accepte str (nom d'etape ou ID numerique) ou int.
+        Resolut le nom en ID integer via crm.stage avec cache Redis 24h.
+        """
         if not self._is_configured():
             return {"status": "simulated", "contact_id": contact_id, "stage": stage}
 
         try:
-            # Recherche des opportunités liées à ce contact
-            lead_ids = await self._call("crm.lead", "search", [[("partner_id", "=", int(contact_id))]])
+            # Resolve stage to integer (Odoo crm.stage.id field)
+            if isinstance(stage, str):
+                if stage.isdigit():
+                    stage_id = int(stage)
+                else:
+                    stage_id = await self._resolve_stage_id(stage)
+            else:
+                stage_id = int(stage)
+
+            # Resolve contact_id to partner_id
+            contact_str = str(contact_id).strip()
+            if contact_str.isdigit():
+                partner_id = int(contact_str)
+            else:
+                # Search partner by email or name if contact_id is non-numeric
+                partners = await self._call(
+                    "res.partner",
+                    "search",
+                    [["|", ("email", "=", contact_str), ("name", "ilike", contact_str)]],
+                )
+                if partners:
+                    partner_id = partners[0]
+                else:
+                    return {
+                        "status": "error",
+                        "detail": f"Partenaire introuvable pour contact_id={contact_id!r}",
+                    }
+
+            lead_ids = await self._call(
+                "crm.lead",
+                "search",
+                [[("partner_id", "=", partner_id)]],
+            )
             if lead_ids:
-                # Mise à jour de l'opportunité (Odoo utilise l'ID de l'étape pour stage_id)
-                # On écrit le nom de l'étape si stage_id est de type texte, ou on convertit
-                await self._call("crm.lead", "write", [lead_ids, {"stage_id": stage}])
-                return {"status": "success", "lead_ids": lead_ids}
-            return {"status": "warning", "detail": "Aucun deal trouvé pour ce partenaire"}
+                await self._call(
+                    "crm.lead",
+                    "write",
+                    [lead_ids, {"stage_id": stage_id}],
+                )
+                return {"status": "success", "lead_ids": lead_ids, "stage_id": stage_id}
+            return {"status": "warning", "detail": f"Aucun deal trouve pour le partenaire ID {partner_id}"}
         except Exception as e:
             print(f"[OdooAdapter] Erreur update_deal_stage : {e}")
             return {"status": "error", "detail": str(e)}
 
     async def create_activity(self, payload: dict) -> Dict[str, Any]:
-        """Enregistre une activité dans Odoo."""
+        """Enregistre une activite dans Odoo."""
         if not self._is_configured():
             return {"status": "simulated", "activity": payload}
 

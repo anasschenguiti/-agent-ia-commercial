@@ -17,7 +17,16 @@ frontend/.turbo/
 
 # Environment & Local Configuration
 .env
+.env.local
+.env.*.local
 !.env.example
+# Data & Local Databases
+data/
+*.sqlite
+*.sqlite3
 sales_db.sqlite
-.DS_Store
-Thumbs.db
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp

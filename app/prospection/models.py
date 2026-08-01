@@ -3,7 +3,7 @@ Modèles Pydantic et entités pour le module de prospection.
 """
 
 from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union, Any
 from datetime import datetime
 from enum import Enum
 
@@ -35,7 +35,7 @@ class ProspectBase(BaseModel):
     annual_revenue: Optional[str] = None
     technologies: Optional[str] = None
     notes: Optional[str] = None
-    data_confidence: Optional[Dict[str, str]] = None
+    data_confidence: Optional[Union[Dict[str, Any], str]] = None
     # REAL-ONLY : pas de valeur par défaut trompeuse. La source N'est "vérifiée"
     # que si une vraie source (website_crawl, osm, sirene, opencorporates) l'a remplie.
     phone_source: Optional[str] = None

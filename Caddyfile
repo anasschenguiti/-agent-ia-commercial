@@ -1,0 +1,28 @@
+# Caddy reverse proxy configuration for Sales AI Agent (IKSATECH)
+
+{
+    email admin@iksatech.ma
+    auto_https off
+}
+
+http://localhost:80, http://localhost {
+    # WebSocket route streaming
+    handle /api/v1/voice/ws* {
+        reverse_proxy backend:8000
+    }
+
+    # API backend route
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+
+    # Health check routes
+    handle /health* {
+        reverse_proxy backend:8000
+    }
+
+    # Frontend Next.js app
+    handle /* {
+        reverse_proxy frontend:3000
+    }
+}
