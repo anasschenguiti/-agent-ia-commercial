@@ -751,6 +751,7 @@ export default function Home() {
               {activeTab === "chat" && "Dialogue en temps réel avec l'Agent IA"}
               {activeTab === "followups" && "Campagnes de Relances Automatiques"}
               {activeTab === "templates" && "Gestion des Templates & Canaux"}
+              {activeTab === "voice" && "Agent Vocal IA Commercial 🎙️"}
             </h1>
             <p className="text-slate-400 text-sm">Portail administrateur de gestion des campagnes et leads</p>
           </div>
