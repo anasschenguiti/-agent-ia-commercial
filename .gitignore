@@ -1,20 +1,12 @@
-# Python virtual environments & bytecode
-venv/
-__pycache__/
-*.pyc
-
-# Node dependencies & build artifacts
-frontend/node_modules/
-frontend/.next/
-
 # Environment files
 .env
 .env.local
 .env.*.local
 !.env.example
 
-# Data folder & SQLite databases
-data/
-*.sqlite
-*.sqlite3
-sales_db.sqlite
+# Virtual environments & build caches
+venv/
+__pycache__/
+*.pyc
+frontend/node_modules/
+frontend/.next/
