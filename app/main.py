@@ -28,7 +28,7 @@ from app.communication.router import router as communication_router
 from app.voice.router import router as voice_router
 from app.shared.auth_router import router as auth_router
 from app.analysis.router import router as analysis_router
-from app.shared.database import init_db, seed_users, AsyncSessionLocal
+from app.shared.database import init_db, seed_users, seed_prospects, AsyncSessionLocal
 from app.shared.redis_client import get_redis_client
 from app.conversation.rag import RAGPipeline
 from app.shared.supabase_client import check_supabase_health
@@ -62,6 +62,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     await init_db()
     await seed_users()
+    await seed_prospects()
     yield
 
 

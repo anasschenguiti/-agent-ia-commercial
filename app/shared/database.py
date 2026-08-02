@@ -127,3 +127,113 @@ async def seed_users() -> None:
             print(f"[Database] Erreur lors du seeding utilisateur : {e}")
         finally:
             await db.close()
+
+
+async def seed_prospects() -> None:
+    """Cree des prospects B2B de demonstration par defaut si la table prospects est vide."""
+    from app.prospection.models import ProspectSQL
+    import uuid
+    from datetime import datetime, timezone
+
+    async with AsyncSessionLocal() as db:
+        try:
+            from sqlalchemy.future import select
+            stmt = select(ProspectSQL)
+            result = await db.execute(stmt)
+            prospects = result.scalars().all()
+            if not prospects:
+                sample_leads = [
+                    ProspectSQL(
+                        id=str(uuid.uuid4()),
+                        first_name="Anass",
+                        last_name="Chenguiti",
+                        job_title="Directeur Général",
+                        company="Atlas Digital Solutions",
+                        email="anass@atlasdigital.ma",
+                        phone="+212661234567",
+                        website="https://atlasdigital.ma",
+                        linkedin_url="https://linkedin.com/in/anass-chenguiti",
+                        industry="Technologies & IA",
+                        company_size="20-50 employés",
+                        location="Casablanca",
+                        country="Maroc",
+                        annual_revenue="10M - 50M MAD",
+                        technologies="Next.js, Python, FastAPI, Docker",
+                        score=92.0,
+                        status="Qualifié HOT",
+                        base_legale="Intérêt Légitime (Prospection B2B)",
+                        created_at=datetime.now(timezone.utc)
+                    ),
+                    ProspectSQL(
+                        id=str(uuid.uuid4()),
+                        first_name="Fatima-Zahra",
+                        last_name="El Amrani",
+                        job_title="VP Commercial & Business Dev",
+                        company="Technopark Maroc",
+                        email="fatimazahra@technopark.ma",
+                        phone="+212662987654",
+                        website="https://technopark.ma",
+                        linkedin_url="https://linkedin.com/in/fz-elamrani",
+                        industry="Incubation & Innovation",
+                        company_size="50-200 employés",
+                        location="Rabat",
+                        country="Maroc",
+                        annual_revenue="50M - 100M MAD",
+                        technologies="CRM HubSpot, Odoo ERP, Cloud AWS",
+                        score=85.0,
+                        status="Qualifié WARM",
+                        base_legale="Intérêt Légitime (Prospection B2B)",
+                        created_at=datetime.now(timezone.utc)
+                    ),
+                    ProspectSQL(
+                        id=str(uuid.uuid4()),
+                        first_name="Mehdi",
+                        last_name="Bennani",
+                        job_title="Chief Technology Officer",
+                        company="Financial Systems Morocco",
+                        email="m.bennani@finsys.ma",
+                        phone="+212663112233",
+                        website="https://finsys.ma",
+                        linkedin_url="https://linkedin.com/in/mehdi-bennani-tech",
+                        industry="Services Financiers & FinTech",
+                        company_size="100-500 employés",
+                        location="Casablanca",
+                        country="Maroc",
+                        annual_revenue="100M+ MAD",
+                        technologies="PostgreSQL, Redis, LangChain, Kubernetes",
+                        score=78.0,
+                        status="Qualifié WARM",
+                        base_legale="Intérêt Légitime (Prospection B2B)",
+                        created_at=datetime.now(timezone.utc)
+                    ),
+                    ProspectSQL(
+                        id=str(uuid.uuid4()),
+                        first_name="Sara",
+                        last_name="Chraibi",
+                        job_title="Responsable Achats B2B",
+                        company="Logistics & Supply Casa",
+                        email="sara.chraibi@logistics.ma",
+                        phone="+212664556677",
+                        website="https://logistics.ma",
+                        linkedin_url="https://linkedin.com/in/sara-chraibi",
+                        industry="Logistique & Transport",
+                        company_size="10-50 employés",
+                        location="Mohammedia",
+                        country="Maroc",
+                        annual_revenue="5M - 20M MAD",
+                        technologies="SAP ERP, MySQL",
+                        score=65.0,
+                        status="Prospect Nouveau",
+                        base_legale="Intérêt Légitime (Prospection B2B)",
+                        created_at=datetime.now(timezone.utc)
+                    )
+                ]
+                for p in sample_leads:
+                    db.add(p)
+                await db.commit()
+                print("[Database] Prospects B2B de demonstration crees par defaut.")
+        except Exception as e:
+            await db.rollback()
+            print(f"[Database] Erreur lors du seeding des prospects : {e}")
+        finally:
+            await db.close()
