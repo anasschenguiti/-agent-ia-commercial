@@ -1,0 +1,1 @@
+# Module Shared (Configuration transversale)

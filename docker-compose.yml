@@ -1,0 +1,141 @@
+name: sales_ai_agent
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sales_agent_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: salah
+      POSTGRES_DB: ai_agent_commercial
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: on-failure:5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sales_agent_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: on-failure:5
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: sales_agent_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: on-failure:5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sales_agent_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - SECRET_KEY=iksatech_sales_ai_secret_key_2026_super_secure_token
+      - DATABASE_URL=postgresql+asyncpg://postgres:salah@postgres:5432/ai_agent_commercial
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: on-failure:5
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sales_agent_celery
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+    env_file:
+      - .env
+    environment:
+      - SECRET_KEY=iksatech_sales_ai_secret_key_2026_super_secure_token
+      - DATABASE_URL=postgresql+asyncpg://postgres:salah@postgres:5432/ai_agent_commercial
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - backend
+      - redis
+    restart: on-failure:5
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sales_agent_celery_beat
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+    env_file:
+      - .env
+    environment:
+      - SECRET_KEY=iksatech_sales_ai_secret_key_2026_super_secure_token
+      - DATABASE_URL=postgresql+asyncpg://postgres:salah@postgres:5432/ai_agent_commercial
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - backend
+      - redis
+    restart: on-failure:5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sales_agent_frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: on-failure:5
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: sales_agent_caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    restart: on-failure:5
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  caddy_data:
+  caddy_config:

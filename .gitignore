@@ -1,0 +1,51 @@
+# Python virtual environments & bytecode
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Node dependencies & build artifacts
+frontend/node_modules/
+frontend/.next/
+whatsapp-bridge/node_modules/
+whatsapp-bridge/.wwebjs_auth/
+whatsapp-bridge/.wwebjs_cache/
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Data folder & SQLite databases
+data/
+*.sqlite
+*.sqlite3
+sales_db.sqlite
+
+# Models & large binary files
+models/
+llama.cpp/
+*.gguf
+*.bin
+*.safetensors
+
+# Audio test files
+*.mp3
+*.wav
+*.ogg
+
+# IDE & OS files
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Pytest cache
+.pytest_cache/
